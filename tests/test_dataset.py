@@ -19,5 +19,5 @@ def test_dataset():
             assert streambuilder.validate_sample_keys(sample)
 
     X, y = iris_data()
-    dataset = streambuilder.to_dict_dataset(X, y)
+    dataset = streambuilder.skl_to_dict_dataset(X, y)
     yield __test_dataset, dataset, X, y

@@ -19,17 +19,11 @@ def get_iris_data():
 def __test_batch_generation(streamer, max_steps, expected_batch_size,
                             expected_classes=None, class_probs=None):
     """Test a streamer to make sure it generates samples correctly."""
-    if expected_batch_size != 1:
-        for i in range(max_steps):
-            batch = next(streamer)
-            assert batch is not None
-            assert isinstance(batch, dict)
-            assert pescador.batch_length(batch) == expected_batch_size
-    else:
-        for batch in streamer.generate(max_batches=max_steps):
-            assert batch is not None
-            assert isinstance(batch, dict)
-            assert streambuilder.validate_sample_keys(batch)
+    for i in range(max_steps):
+        batch = next(streamer)
+        assert batch is not None
+        assert isinstance(batch, dict)
+        assert pescador.batch_length(batch) == expected_batch_size
 
 
 def __test_validation_generation(streamer, n_samples, expected_batch_size):
@@ -43,7 +37,7 @@ def test_streambuilder_basic():
     # 0a: (X, y) -> slicer -> streamer -> batches
     X, y = get_iris_data()
     # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
-    iris_dataset = streambuilder.to_dict_dataset(X, y)
+    iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
     tempdir = tempfile.TemporaryDirectory()
     # 0c: "file.npz" -> slicer -> streamer -> batches
     # Set up temporary npz file to load from.
@@ -65,7 +59,7 @@ def test_streambuilder_basic():
 # #  (all samples in order / validation)
 # def test_streambuilder_validation():
 #     X, y = get_iris_data()
-#     iris_dataset = streambuilder.to_dict_dataset(X, y)
+#     iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
 
 #     for batch_size in [1, 10, 100]:
 #         streamer = streambuilder.ValidationStreamBuilder(
@@ -78,7 +72,7 @@ def test_streambuilder_basic():
 # #  mux => streamer => batches
 # def test_streambuilder_equalclass():
 #     X, y = get_iris_data()
-#     iris_dataset = streambuilder.to_dict_dataset(X, y)
+#     iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
 #     expected_classes = np.unique(y)
 
 #     for batch_size in [1, 10, 100]:
@@ -96,8 +90,8 @@ def test_streambuilder_basic():
 #     X2 = X + np.random.randn(X.shape) * 0.01
 
 #     # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
-#     iris_dataset = streambuilder.to_dict_dataset(X, y)
-#     iris_dataset_2 = streambuilder.to_dict_dataset(X2, y)
+#     iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
+#     iris_dataset_2 = streambuilder.skl_to_dict_dataset(X2, y)
 
 #     ds1 = streambuilder.StreamBuilder(iris_dataset)
 #     ds2 = streambuilder.StreamBuilder(iris_dataset_2)
@@ -111,19 +105,18 @@ def test_streambuilder_basic():
 #             yield __test_batch_generation, streamer, max_steps, batch_size
 
 
-# # Case 4: Custom Slicers
+# Case 4: Custom Slicers
 
-# # Other basic functionality:
-# def test_test_streamer():
-#     def __test(streamer, timed):
-#         result = streamer.test(timed=timed)
-#         if timed:
-#             pass
-#         else:
-#             assert result is True
+# Other basic functionality:
+def test_test_streamer():
+    def __test(streamer, timed):
+        result = streamer.test(timed=timed)
+        if timed:
+            pass
+        else:
+            assert result is True
 
-#     data = get_iris_data()
-#     for timed in [True, False]:
-#         streamer = streambuilder.StreamBuilder(*data)
-#         yield __test, streamer, timed
-
+    data = get_iris_data()
+    for timed in [True, False]:
+        streamer = streambuilder.StreamBuilder(*data)
+        yield __test, streamer, timed
