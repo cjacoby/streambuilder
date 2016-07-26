@@ -50,15 +50,29 @@ class StreamBuilder(object):
     """A Factory class which deals with creating Pescador streammer objects from
     various input types.
     """
-    @classmethod
-    def from_skl_data(cls, X, y, batch_size=1):
-        return cls.from_dict_data(to_dict_dataset(X, y), batch_size=batch_size)
+    def __new__(cls, *sources, batch_size=1):
+        streamer = None
+        if (len(sources) == 2) and (isinstance(sources[0], np.ndarray) and
+                                    isinstance(sources[0], np.ndarray)):
+            streamer = cls.from_skl_data(*sources)
+        elif len(sources) == 1 and isinstance(sources[0], str):
+            streamer = cls.from_npz(sources[0])
+        elif len(sources) == 1 and isinstance(sources[0], list):
+            streamer = cls.from_dict_data(sources[0])
+        else:
+            streamer = cls.from_npz(sources[0])
 
-    @classmethod
-    def from_dict_data(cls, dict_data, batch_size=1):
-        streamer = pescador.Streamer(infinite_dataset_generator, dict_data)
-        return cls.batch_streamer(streamer, batch_size)
-
-    @classmethod
-    def batch_streamer(cls, streamer, batch_size):
         return pescador.buffer_streamer(streamer, batch_size)
+
+    @classmethod
+    def from_skl_data(cls, X, y):
+        return cls.from_dict_data(to_dict_dataset(X, y))
+
+    @classmethod
+    def from_dict_data(cls, dict_data):
+        return pescador.Streamer(infinite_dataset_generator, dict_data)
+
+    @classmethod
+    def from_npz(cls, npz_file):
+        data = np.load(npz_file)['data'].tolist()
+        return cls.from_dict_data(data)

@@ -1,16 +1,18 @@
+import numpy as np
+import os
 import pescador
 import sklearn
 import sklearn.datasets
+import tempfile
 
 from nose.tools import raises, eq_
 
 import streambuilder
 
 
-def iris_data():
+def get_iris_data():
     # Load up the iris dataset for the demo
     data = sklearn.datasets.load_iris()
-
     return data.data, data.target
 
 
@@ -24,23 +26,27 @@ def __test_batch_generation(streamer, max_steps, expected_batch_size,
 
 
 # Case 0: Data -> slicer -> streamer -> batches (random sampling)
-def test_streambuilder_random_sklearn():
+def test_streambuilder_basic():
+    # 0a: (X, y) -> slicer -> streamer -> batches
+    X, y = get_iris_data()
+    # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
+    iris_dataset = streambuilder.to_dict_dataset(X, y)
+    tempdir = tempfile.TemporaryDirectory()
+    # 0c: "file.npz" -> slicer -> streamer -> batches
+    # Set up temporary npz file to load from.
+    temp_npz = os.path.join(tempdir.name, "iris.npz")
+    np.savez(temp_npz, data=iris_dataset)
+    assert os.path.exists(temp_npz)
+
+    # 0d: Dataset -> slicer -> streamer -> batches
+
     for max_steps in [5, 20, 100]:
         for batch_size in [1, 8, 32, 64]:
-            streamer = streambuilder.StreamBuilder.from_skl_data(
-                *iris_data(), batch_size=batch_size)
-            yield __test_batch_generation, streamer, max_steps, batch_size
+            for data_source in [(X, y), (iris_dataset,), (temp_npz,)]:
+                streamer = streambuilder.StreamBuilder(
+                    *data_source, batch_size=batch_size)
+                yield __test_batch_generation, streamer, max_steps, batch_size
 
-            streamer = streambuilder.StreamBuilder.from_dict_data(
-                streambuilder.to_dict_dataset(*iris_data()),
-                batch_size=batch_size)
-            yield __test_batch_generation, streamer, max_steps, batch_size
-
-
-# 0a: (X, y) -> slicer -> streamer -> batches
-# 0b: [{x_in, target},...] -> slicer -> streamer -> batches
-# 0c: "file.npz" -> slicer -> streamer -> batches
-# 0d: Dataset -> slicer -> streamer -> batches
 
 # Case 1: Data -> slicer -> streamer -> batches (all samples in order / validation)
 
