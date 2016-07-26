@@ -1,6 +1,7 @@
 """
 """
 
+import numpy as np
 import pescador
 
 
@@ -18,13 +19,13 @@ def to_dict_dataset(X, y):
     Returns
     -------
     dataset : list of dict
-    
+
     """
     dataset = []
     for i in range(len(X)):
         dataset.append({
-            'x_in': X[i],
-            'target': y[i]
+            'X': np.atleast_2d(X[i]),
+            'y': np.atleast_1d(y[i])
         })
     return dataset
 
@@ -57,7 +58,7 @@ class StreamBuilder(object):
     def from_dict_data(cls, dict_data, batch_size=1):
         streamer = pescador.Streamer(infinite_dataset_generator, dict_data)
         return cls.batch_streamer(streamer, batch_size)
-    
+
     @classmethod
     def batch_streamer(cls, streamer, batch_size):
         return pescador.buffer_streamer(streamer, batch_size)

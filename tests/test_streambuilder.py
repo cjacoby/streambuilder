@@ -1,3 +1,4 @@
+import pescador
 import sklearn
 import sklearn.datasets
 
@@ -13,21 +14,12 @@ def iris_data():
     return data.data, data.target
 
 
-def iris_dict_data():
-    data = iris_data()
-
-    dict_data = []
-    for i in range(len(data[0])):
-        dict_data.append({
-            'X': data[0][i],
-            'target': data[1][i]})
-    return dict_data
-
-
-def __test_batch_generation(streamer, max_steps, expected_batch_size, expected_classes=None, class_probs=None):
+def __test_batch_generation(streamer, max_steps, expected_batch_size,
+                            expected_classes=None, class_probs=None):
     """Test a streamer to make sure it generates samples correctly."""
-    for batch in streamer.generate(max_batches=max_steps):
-        assert bach is not None
+    for i in range(max_steps):
+        batch = next(streamer)
+        assert batch is not None
         assert pescador.batch_length(batch) == expected_batch_size
 
 
@@ -35,15 +27,16 @@ def __test_batch_generation(streamer, max_steps, expected_batch_size, expected_c
 def test_streambuilder_random_sklearn():
     for max_steps in [5, 20, 100]:
         for batch_size in [1, 8, 32, 64]:
-            streamer = streambuilder.StreamBuilder.from_skl_data(*iris_data(),
-                                                                 batch_size=batch_size)
+            streamer = streambuilder.StreamBuilder.from_skl_data(
+                *iris_data(), batch_size=batch_size)
             yield __test_batch_generation, streamer, max_steps, batch_size
 
-            streamer = streambuilder.StreamBuilder.from_dict_data(iris_dict_data(),
-                                                                 batch_size=batch_size)
+            streamer = streambuilder.StreamBuilder.from_dict_data(
+                streambuilder.to_dict_dataset(*iris_data()),
+                batch_size=batch_size)
             yield __test_batch_generation, streamer, max_steps, batch_size
 
-    
+
 # 0a: (X, y) -> slicer -> streamer -> batches
 # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
 # 0c: "file.npz" -> slicer -> streamer -> batches

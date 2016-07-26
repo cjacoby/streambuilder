@@ -16,8 +16,8 @@ def test_dataset():
         assert isinstance(dataset, list)
         assert len(dataset) == len(X) and len(dataset) == len(y)
         for sample in dataset:
-            assert 'x_in' in sample and 'target' in sample
+            assert streambuilder.validate_sample_keys(sample)
 
     X, y = iris_data()
-    dataset = streambuilder.create_dict_dataset(X, y)
+    dataset = streambuilder.to_dict_dataset(X, y)
     yield __test_dataset, dataset, X, y
