@@ -62,7 +62,10 @@ class StreamBuilder(object):
         else:
             streamer = cls.from_npz(sources[0])
 
-        return pescador.buffer_streamer(streamer, batch_size)
+        if batch_size and batch_size > 1:
+            return pescador.buffer_streamer(streamer, batch_size)
+        else:
+            return streamer
 
     @classmethod
     def from_skl_data(cls, X, y):
@@ -76,3 +79,9 @@ class StreamBuilder(object):
     def from_npz(cls, npz_file):
         data = np.load(npz_file)['data'].tolist()
         return cls.from_dict_data(data)
+
+
+class ValidationStreamBuilder(StreamBuilder):
+    def __new__(cls, *sources, batch_size=1):
+        return super(ValidationStreamBuilder, cls).__new__(
+            *sources, batch_size)

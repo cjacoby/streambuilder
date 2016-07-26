@@ -19,10 +19,23 @@ def get_iris_data():
 def __test_batch_generation(streamer, max_steps, expected_batch_size,
                             expected_classes=None, class_probs=None):
     """Test a streamer to make sure it generates samples correctly."""
-    for i in range(max_steps):
-        batch = next(streamer)
-        assert batch is not None
-        assert pescador.batch_length(batch) == expected_batch_size
+    if expected_batch_size != 1:
+        for i in range(max_steps):
+            batch = next(streamer)
+            assert batch is not None
+            assert isinstance(batch, dict)
+            assert pescador.batch_length(batch) == expected_batch_size
+    else:
+        for batch in streamer.generate(max_batches=max_steps):
+            assert batch is not None
+            assert isinstance(batch, dict)
+            assert streambuilder.validate_sample_keys(batch)
+
+
+def __test_validation_generation(streamer, n_samples, expected_batch_size):
+    """A validation generator should generate samples until there are no
+    more."""
+    pass
 
 
 # Case 0: Data -> slicer -> streamer -> batches (random sampling)
@@ -48,15 +61,69 @@ def test_streambuilder_basic():
                 yield __test_batch_generation, streamer, max_steps, batch_size
 
 
-# Case 1: Data -> slicer -> streamer -> batches (all samples in order / validation)
+# # Case 1: Data -> slicer -> streamer -> batches
+# #  (all samples in order / validation)
+# def test_streambuilder_validation():
+#     X, y = get_iris_data()
+#     iris_dataset = streambuilder.to_dict_dataset(X, y)
 
-# Case 2: Split data up by class probability
-# Dataset => [Dataset_0, Dataset_i, ..., Dataset_k] => slicers => streamers => mux => streamer => batches
+#     for batch_size in [1, 10, 100]:
+#         streamer = streambuilder.ValidationStreamBuilder(
+#             iris_dataset, batch_size=batch_size)
+#         yield __test_validation_generation, streamer, len(X), batch_size
 
-# Case 3: Dataset Muxing; Build streams and then combine them with weights.
 
-# Case 4: Custom Slicers
+# # Case 2: Split data up by class probability
+# # Dataset => [Dataset_0, Dataset_i, ..., Dataset_k] => slicers => streamers =>
+# #  mux => streamer => batches
+# def test_streambuilder_equalclass():
+#     X, y = get_iris_data()
+#     iris_dataset = streambuilder.to_dict_dataset(X, y)
+#     expected_classes = np.unique(y)
 
-# Other basic functionality:
-# .test()
-# .test(timed)
+#     for batch_size in [1, 10, 100]:
+#         for class_probs in ["equal", ((expected_classes + 1) / np.max(
+#                 expected_classes + 1))]:
+#             streamer = streambuilder.StreamBuilder(
+#                 iris_dataset, class_probs=class_probs, batch_size=batch_size)
+#             yield __test_batch_generation, streamer, len(X), batch_size, \
+#                 expected_classes, class_probs
+
+
+# # Case 3: Dataset Muxing; Build streams and then combine them with weights.
+# def test_mux_datasets():
+#     X, y = get_iris_data()
+#     X2 = X + np.random.randn(X.shape) * 0.01
+
+#     # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
+#     iris_dataset = streambuilder.to_dict_dataset(X, y)
+#     iris_dataset_2 = streambuilder.to_dict_dataset(X2, y)
+
+#     ds1 = streambuilder.StreamBuilder(iris_dataset)
+#     ds2 = streambuilder.StreamBuilder(iris_dataset_2)
+
+#     max_steps = 50
+#     for batch_size in [1, 10, 100]:
+#         for weights in [(1, None), (.5, .5), ("equal",)]:
+#             streamer = streambuilder.MixDatasets(ds1, ds2,
+#                                                  weights=weights,
+#                                                  batch_size=batch_size)
+#             yield __test_batch_generation, streamer, max_steps, batch_size
+
+
+# # Case 4: Custom Slicers
+
+# # Other basic functionality:
+# def test_test_streamer():
+#     def __test(streamer, timed):
+#         result = streamer.test(timed=timed)
+#         if timed:
+#             pass
+#         else:
+#             assert result is True
+
+#     data = get_iris_data()
+#     for timed in [True, False]:
+#         streamer = streambuilder.StreamBuilder(*data)
+#         yield __test, streamer, timed
+
