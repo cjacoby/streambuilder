@@ -1,6 +1,7 @@
 """
 """
 
+from collections import defaultdict
 import numpy as np
 import pescador
 import time
@@ -56,30 +57,68 @@ class StreamBuilder(object):
     """A Factory class which deals with creating Pescador streammer objects from
     various input types.
     """
-    def __init__(self, *sources, batch_size=1):
-        self.dataset = []
+    def __init__(self, *sources,
+                 class_probs=None, batch_size=1,
+                 cache_class_splits=False):
+        """
+        Parameters
+        ----------
+        sources :
+            X, y : sklearn-style X, y np.ndarray.
+            dict_data : list of dicts
+            npz_file : npz filename.
+
+        class_probs : in [None, list of floats, "equal"]
+            None : just use the input
+            list of floats : Probability of sampling from each
+                class. Must match the number of classes in the dataset.
+            'equal' : enforce equal probability streaming of each class.
+
+        batch_size : int
+            Number of samples to collect for each batch.
+
+        cache_class_splits : bool
+            If true, and class_probs is None, after separating
+            the different classes into separate sources, also
+            caches them to disk so they don't have to be separated again
+            next time
+        """
+        self.datasets = []
         self.streamer = None
         self.batch_streamer = None
 
         self.init_data_source(sources)
+        if class_probs is not None:
+            self.separate_target_classes(class_probs, cache_class_splits)
         self.init_streamers()
         self.setup_batch(batch_size)
 
     def init_data_source(self, sources):
         if (len(sources) == 2) and (isinstance(sources[0], np.ndarray) and
                                     isinstance(sources[0], np.ndarray)):
-            self.dataset = skl_to_dict_dataset(*sources)
+            self.datasets = [skl_to_dict_dataset(*sources)]
         elif len(sources) == 1 and isinstance(sources[0], str):
-            self.dataset = load_npz_dataset(sources[0])
+            self.datasets = [load_npz_dataset(sources[0])]
         elif len(sources) == 1 and isinstance(sources[0], list):
-            self.dataset = sources[0]
+            self.datasets = [sources[0]]
         else:
             raise NotImplementedError("Invalid sources: {}".format(sources))
 
+    def separate_target_classes(self, class_probs, cache_class_splits):
+        self.target_datasets = defaultdict(list)
+        self.class_probs = class_probs
+
+        for sample in self.datasets[0]:
+            target = sample.get('target', sample.get('y', sample.get('Y')))
+            self.target_datasets[int(target)].append(sample)
+
+        if cache_class_splits:
+            raise NotImplementedError("No cache available yet.")
+
     def init_streamers(self):
-        if self.dataset:
+        if self.datasets and len(self.datasets) == 1:
             self.streamer = pescador.Streamer(infinite_dataset_generator,
-                                              self.dataset)
+                                              self.datasets[0])
         else:
             logger.error("No valid dataset! Fail :(")
 

@@ -1,3 +1,4 @@
+from collections import defaultdict
 import numpy as np
 import os
 import pescador
@@ -5,7 +6,7 @@ import sklearn
 import sklearn.datasets
 import tempfile
 
-from nose.tools import raises, eq_
+from nose.tools import raises, eq_, assert_almost_equals
 
 import streambuilder
 
@@ -19,11 +20,35 @@ def get_iris_data():
 def __test_batch_generation(streamer, max_steps, expected_batch_size,
                             expected_classes=None, class_probs=None):
     """Test a streamer to make sure it generates samples correctly."""
+    class_counts = defaultdict(int)
+    total = 0
+
     for i in range(max_steps):
         batch = next(streamer)
         assert batch is not None
         assert isinstance(batch, dict)
         assert pescador.batch_length(batch) == expected_batch_size
+
+        if class_probs is not None:
+            for target in batch['y']:
+                class_counts[int(target)] += 1
+                total += 1
+
+    if expected_classes is not None:
+        if class_probs == "equal":
+            expected_class_probs = (np.ones(len(expected_classes)) /
+                                    len(expected_classes))
+        else:
+            expected_class_probs = class_probs
+
+        # This is somewhat artbitrary, I admit. <2*std
+        class_count_std = np.array([x for x in class_counts.values()]).std()
+        for i, expected_prob in enumerate(expected_class_probs):
+            actual_prob = class_counts[i] / total
+
+            if class_count_std != 0.0:
+                assert np.abs(expected_prob - actual_prob) < 2 * \
+                    class_count_std
 
 
 def __test_validation_generation(streamer, n_samples, expected_batch_size):
@@ -67,21 +92,21 @@ def test_streambuilder_basic():
 #         yield __test_validation_generation, streamer, len(X), batch_size
 
 
-# # Case 2: Split data up by class probability
-# # Dataset => [Dataset_0, Dataset_i, ..., Dataset_k] => slicers => streamers =>
-# #  mux => streamer => batches
-# def test_streambuilder_equalclass():
-#     X, y = get_iris_data()
-#     iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
-#     expected_classes = np.unique(y)
+# Case 2: Split data up by class probability
+# Dataset => [Dataset_0, Dataset_i, ..., Dataset_k] => slicers => streamers =>
+#  mux => streamer => batches
+def test_streambuilder_equalclass():
+    X, y = get_iris_data()
+    iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
+    expected_classes = np.unique(y)
 
-#     for batch_size in [1, 10, 100]:
-#         for class_probs in ["equal", ((expected_classes + 1) / np.max(
-#                 expected_classes + 1))]:
-#             streamer = streambuilder.StreamBuilder(
-#                 iris_dataset, class_probs=class_probs, batch_size=batch_size)
-#             yield __test_batch_generation, streamer, len(X), batch_size, \
-#                 expected_classes, class_probs
+    for batch_size in [1, 10, 100]:
+        for class_probs in ["equal", ((expected_classes + 1) / np.max(
+                expected_classes + 1))]:
+            streamer = streambuilder.StreamBuilder(
+                iris_dataset, class_probs=class_probs, batch_size=batch_size)
+            yield __test_batch_generation, streamer, len(X), batch_size, \
+                expected_classes, class_probs
 
 
 # # Case 3: Dataset Muxing; Build streams and then combine them with weights.
