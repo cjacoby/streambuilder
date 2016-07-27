@@ -18,7 +18,7 @@ def get_iris_data():
 
 
 def __test_batch_generation(streamer, max_steps, expected_batch_size,
-                            expected_classes=None, class_probs=None):
+                            expected_classes=None, equal_class_probs=None):
     """Test a streamer to make sure it generates samples correctly."""
     class_counts = defaultdict(int)
     total = 0
@@ -29,26 +29,20 @@ def __test_batch_generation(streamer, max_steps, expected_batch_size,
         assert isinstance(batch, dict)
         assert pescador.batch_length(batch) == expected_batch_size
 
-        if class_probs is not None:
+        if equal_class_probs:
             for target in batch['y']:
                 class_counts[int(target)] += 1
                 total += 1
 
-    if expected_classes is not None:
-        if class_probs == "equal":
-            expected_class_probs = (np.ones(len(expected_classes)) /
-                                    len(expected_classes))
-        else:
-            expected_class_probs = class_probs
+    if equal_class_probs:
+        expected_class_probs = (np.ones(len(expected_classes)) /
+                                len(expected_classes))
 
-        # This is somewhat artbitrary, I admit. <2*std
-        class_count_std = np.array([x for x in class_counts.values()]).std()
         for i, expected_prob in enumerate(expected_class_probs):
             actual_prob = class_counts[i] / total
 
-            if class_count_std != 0.0:
-                assert np.abs(expected_prob - actual_prob) < 2 * \
-                    class_count_std
+            # Todo: this could be better... and not stochastic
+            assert np.abs(expected_prob - actual_prob) < 0.1
 
 
 def __test_validation_generation(streamer, n_samples, expected_batch_size):
@@ -101,33 +95,33 @@ def test_streambuilder_equalclass():
     expected_classes = np.unique(y)
 
     for batch_size in [1, 10, 100]:
-        for class_probs in ["equal", ((expected_classes + 1) / np.max(
-                expected_classes + 1))]:
+        for equal_class_probs in [True, False]:
             streamer = streambuilder.StreamBuilder(
-                iris_dataset, class_probs=class_probs, batch_size=batch_size)
+                iris_dataset, equal_class_probs=equal_class_probs,
+                batch_size=batch_size)
             yield __test_batch_generation, streamer, len(X), batch_size, \
-                expected_classes, class_probs
+                expected_classes, equal_class_probs
 
 
-# # Case 3: Dataset Muxing; Build streams and then combine them with weights.
-# def test_mux_datasets():
-#     X, y = get_iris_data()
-#     X2 = X + np.random.randn(X.shape) * 0.01
+# Case 3: Dataset Muxing; Build streams and then combine them with weights.
+def test_mux_datasets():
+    X, y = get_iris_data()
+    X2 = X + np.random.random(X.shape) * 0.01
 
-#     # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
-#     iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
-#     iris_dataset_2 = streambuilder.skl_to_dict_dataset(X2, y)
+    # 0b: [{x_in, target},...] -> slicer -> streamer -> batches
+    iris_dataset = streambuilder.skl_to_dict_dataset(X, y)
+    iris_dataset_2 = streambuilder.skl_to_dict_dataset(X2, y)
 
-#     ds1 = streambuilder.StreamBuilder(iris_dataset)
-#     ds2 = streambuilder.StreamBuilder(iris_dataset_2)
+    ds1 = streambuilder.StreamBuilder(iris_dataset)
+    ds2 = streambuilder.StreamBuilder(iris_dataset_2)
 
-#     max_steps = 50
-#     for batch_size in [1, 10, 100]:
-#         for weights in [(1, None), (.5, .5), ("equal",)]:
-#             streamer = streambuilder.MixDatasets(ds1, ds2,
-#                                                  weights=weights,
-#                                                  batch_size=batch_size)
-#             yield __test_batch_generation, streamer, max_steps, batch_size
+    max_steps = 50
+    for batch_size in [1, 10, 100]:
+        for weights in [(1.0, 0.0), (.5, .5), (None)]:
+            streamer = streambuilder.StreamMuxer(ds1, ds2,
+                                                 stream_weights=weights,
+                                                 batch_size=batch_size)
+            yield __test_batch_generation, streamer, max_steps, batch_size
 
 
 # Case 4: Custom Slicers
@@ -137,7 +131,9 @@ def test_test_streamer():
     def __test(streamer, timed):
         result = streamer.test(timed=timed)
         if timed:
-            pass
+            assert 'duration' in result and isinstance(
+                result['duration'], float)
+            assert 'success' in result and result['success']
         else:
             assert result is True
 

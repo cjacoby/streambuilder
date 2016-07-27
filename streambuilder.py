@@ -53,74 +53,12 @@ def infinite_dataset_generator(dict_data):
         yield sample
 
 
-class StreamBuilder(object):
-    """A Factory class which deals with creating Pescador streammer objects from
-    various input types.
-    """
-    def __init__(self, *sources,
-                 class_probs=None, batch_size=1,
-                 cache_class_splits=False):
-        """
-        Parameters
-        ----------
-        sources :
-            X, y : sklearn-style X, y np.ndarray.
-            dict_data : list of dicts
-            npz_file : npz filename.
-
-        class_probs : in [None, list of floats, "equal"]
-            None : just use the input
-            list of floats : Probability of sampling from each
-                class. Must match the number of classes in the dataset.
-            'equal' : enforce equal probability streaming of each class.
-
-        batch_size : int
-            Number of samples to collect for each batch.
-
-        cache_class_splits : bool
-            If true, and class_probs is None, after separating
-            the different classes into separate sources, also
-            caches them to disk so they don't have to be separated again
-            next time
-        """
-        self.datasets = []
+class StreamerMixin(object):
+    def __init__(self):
+        self.source = None
+        self.target_datasets = None
         self.streamer = None
         self.batch_streamer = None
-
-        self.init_data_source(sources)
-        if class_probs is not None:
-            self.separate_target_classes(class_probs, cache_class_splits)
-        self.init_streamers()
-        self.setup_batch(batch_size)
-
-    def init_data_source(self, sources):
-        if (len(sources) == 2) and (isinstance(sources[0], np.ndarray) and
-                                    isinstance(sources[0], np.ndarray)):
-            self.datasets = [skl_to_dict_dataset(*sources)]
-        elif len(sources) == 1 and isinstance(sources[0], str):
-            self.datasets = [load_npz_dataset(sources[0])]
-        elif len(sources) == 1 and isinstance(sources[0], list):
-            self.datasets = [sources[0]]
-        else:
-            raise NotImplementedError("Invalid sources: {}".format(sources))
-
-    def separate_target_classes(self, class_probs, cache_class_splits):
-        self.target_datasets = defaultdict(list)
-        self.class_probs = class_probs
-
-        for sample in self.datasets[0]:
-            target = sample.get('target', sample.get('y', sample.get('Y')))
-            self.target_datasets[int(target)].append(sample)
-
-        if cache_class_splits:
-            raise NotImplementedError("No cache available yet.")
-
-    def init_streamers(self):
-        if self.datasets and len(self.datasets) == 1:
-            self.streamer = pescador.Streamer(infinite_dataset_generator,
-                                              self.datasets[0])
-        else:
-            logger.error("No valid dataset! Fail :(")
 
     def setup_batch(self, batch_size):
         if self.streamer:
@@ -128,7 +66,7 @@ class StreamBuilder(object):
                 self.batch_streamer = pescador.buffer_streamer(
                     self.streamer, batch_size)
         else:
-            logger.error("No valid streamer! Fail :(")
+            logger.error("No valid streamer! Failed to setup batches.")
 
     def test(self, timed=False, n_iter=100):
         success = False
@@ -158,13 +96,144 @@ class StreamBuilder(object):
         else:
             return self.streamer.generate()
 
-    def __next__(self):
+    def generate(self, *args, **kwargs):
+        return self.streamer.generate(*args, **kwargs)
+
+    def next(self):
         stream_source = (self.batch_streamer if self.batch_streamer
                          else self.streamer.generate())
         return next(stream_source)
 
+    def __next__(self):
+        return self.next()
+
+
+class StreamBuilder(StreamerMixin):
+    """A Factory class which deals with creating Pescador streammer objects from
+    various input types.
+    """
+    CLASS_MUX_PARAMS = dict(
+        n_samples=None,  # no maximum number
+        lam=None,  # Only use these streams; one for each class.
+        with_replacement=False,  # really, only these streams
+        revive=True  # make sure only one copy of each is active
+                     # at a time.
+    )
+
+    def __init__(self, *sources,
+                 equal_class_probs=None, batch_size=1,
+                 cache_class_splits=False):
+        """
+        Parameters
+        ----------
+        sources :
+            X, y : sklearn-style X, y np.ndarray.
+            dict_data : list of dicts
+            npz_file : npz filename.
+
+        class_probs : in [None, list of floats, "equal"]
+            None : just use the input
+            list of floats : Probability of sampling from each
+                class. Must match the number of classes in the dataset.
+            'equal' : enforce equal probability streaming of each class.
+
+        batch_size : int
+            Number of samples to collect for each batch.
+
+        cache_class_splits : bool
+            If true, and class_probs is None, after separating
+            the different classes into separate sources, also
+            caches them to disk so they don't have to be separated again
+            next time
+        """
+        self.source = None
+        self.target_datasets = None
+        self.streamer = None
+        self.batch_streamer = None
+
+        self.init_data_source(sources)
+        if equal_class_probs is not None:
+            self.separate_target_classes(equal_class_probs, cache_class_splits)
+        self.init_seed_pool()
+        self.setup_mux()
+        self.setup_batch(batch_size)
+
+    def init_data_source(self, sources):
+        if (len(sources) == 2) and (isinstance(sources[0], np.ndarray) and
+                                    isinstance(sources[0], np.ndarray)):
+            self.source = skl_to_dict_dataset(*sources)
+        elif len(sources) == 1 and isinstance(sources[0], str):
+            self.source = load_npz_dataset(sources[0])
+        elif len(sources) == 1 and isinstance(sources[0], list):
+            self.source = sources[0]
+        else:
+            raise NotImplementedError("Invalid sources: {}".format(sources))
+
+    def separate_target_classes(self, equal_class_probs, cache_class_splits):
+        self.target_datasets = defaultdict(list)
+        self.equal_class_probs = equal_class_probs
+
+        for sample in self.source:
+            target = sample.get('target', sample.get('y', sample.get('Y')))
+            self.target_datasets[int(target)].append(sample)
+
+        if cache_class_splits:
+            raise NotImplementedError("No cache available yet.")
+
+    def init_seed_pool(self):
+        if self.target_datasets is not None:
+            # Set up target streams
+            self.seed_pool = [pescador.Streamer(infinite_dataset_generator,
+                                                self.target_datasets[x])
+                              for x in self.target_datasets]
+        else:
+            self.seed_pool = [pescador.Streamer(infinite_dataset_generator,
+                                                self.source)]
+
+    def setup_mux(self):
+        stream_mux = pescador.mux(self.seed_pool,
+                                  k=len(self.seed_pool),
+                                  **self.CLASS_MUX_PARAMS)
+        self.streamer = pescador.Streamer(stream_mux)
+
 
 class ValidationStreamBuilder(StreamBuilder):
-    def __new__(cls, *sources, batch_size=1):
-        return super(ValidationStreamBuilder, cls).__new__(
-            *sources, batch_size)
+    CLASS_MUX_PARAMS = dict(
+        n_samples=None,
+        k=1,
+        lam=20000,  # sample ~1000 batches from this stream
+        with_replacement=True
+    )
+
+    def __init__(self, *sources, batch_size=1, **kwargs):
+        return super(ValidationStreamBuilder, self).__init__(
+            *sources, batch_size=batch_size, **kwargs)
+
+
+class StreamMuxer(StreamerMixin):
+    """Multiplexes different streams, allowing you
+    to mix samples from different datasets together."""
+
+    def __init__(self, *streams, stream_weights=None, batch_size=1):
+        """
+        Parameters
+        ----------
+        streams : list of StreamerMixins
+
+        stream_weights : list of float or None
+            See pescador.util.mux
+
+        batch_size : int
+        """
+        super(StreamMuxer, self).__init__()
+
+        self.setup_mux(streams, stream_weights)
+        self.setup_batch(batch_size)
+
+    def setup_mux(self, streams, stream_weights):
+        stream_mux = pescador.mux(streams,
+                                  n_samples=None,
+                                  k=len(streams),
+                                  lam=None,
+                                  pool_weights=stream_weights)
+        self.streamer = pescador.Streamer(stream_mux)
